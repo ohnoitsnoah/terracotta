@@ -1,4 +1,4 @@
-/\#main.go\#
-/.\#main.go
-/posts.db
-/*.db
+#main.go#
+main.go
+posts.db
+*.db
