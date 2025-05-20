@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Terracotta Microblog</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>Terracotta</h1>
+
+    {{range .}}
+    <div class="post">
+        <div class="post-header"><strong>{{.Username}}</strong></div>
+        <div class="post-content">{{.Content}}</div>
+        <div class="post-meta">
+            Posted at {{.CreatedAt}} — Likes: {{.Likes}}
+        </div>
+    </div>
+    {{end}}
+
+    <form action="/post" method="POST">
+        <h2>New Post</h2>
+        <input type="text" name="username" placeholder="Your name" required />
+        <textarea name="content" placeholder="What's on your mind?" rows="4" required></textarea>
+        <button type="submit">Post</button>
+    </form>
+</body>
+</html>

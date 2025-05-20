@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>terracotta microblog</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>terracotta</h1>
+
+    <div>
+        {{if .Username}}
+            Logged in as {{.Username}} |
+            <a href="/logout">logout</a>
+        {{else}}
+            <a href="/login">login</a> | <a href="/register">register</a>
+        {{end}}
+    </div>
+    <hr>
+    <h2>timeline</h2>
+    <p>post count: {{len .Posts}}</p>
+
+    {{range .Posts}}
+    <div class="post">
+        <div class="post-header">{{.Username}}</div>
+        <div class="post-content">{{.Content}}</div>
+        <div class="post-meta">
+            Posted at {{.CreatedAt}} — Likes: {{.Likes}}
+        </div>
+    </div>
+    <form action="/like" method="POST" style="display: inline;">
+    <input type="hidden" name="post_id" value="{{.ID}}">
+    <button type="submit">❤️ Like</button>
+    </form>
+    <span>{{.Likes}} likes</span>
+    {{end}}
+
+    <form action="/post" method="POST">
+        <h2>New Post</h2>
+	<label for="content">Content</label>
+        <textarea name="content" id="content" placeholder="What's on your mind?" rows="4" required></textarea>
+        <button type="submit">Post</button>
+    </form>
+</body>
+</html>
