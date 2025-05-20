@@ -1,4 +1,4 @@
-\#main.go\#
-\#main.go
-posts.db
+terracotta/\#main.go\#
+terracotta/.\#main.go
+terracotta/posts.db
 *.db
