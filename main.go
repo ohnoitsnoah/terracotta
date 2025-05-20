@@ -44,6 +44,18 @@ func main() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS likes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			post_id INTEGER NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (post_id) REFERENCES posts(id)
+			UNIQUE (user_id, post_id)
+		);
+`)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,7 +75,18 @@ func main() {
 
 //index handler
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT id, content, username, likes, created_at FROM posts ORDER BY created_at DESC")
+	rows, err := db.Query(`
+	SELECT
+	posts.id,
+	posts.content,
+	posts.username,
+	COUNT(likes.id) AS likes,
+	posts.created_at
+	FROM posts
+	LEFT JOIN likes ON posts.id = likes.post_id
+	GROUP BY posts.id
+	ORDER BY posts.created_at DESC
+	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -156,14 +179,21 @@ func likePostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if the user has already liked the post
 	var exists int
 	err = db.QueryRow("SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?", userID, postID).Scan(&exists)
 	if err == nil {
+		_, err = db.Exec("DELETE FROM likes WHERE user_id = ? AND post_id = ?", userID, postID)
+		if err != nil {
+			http.Error(w, "Failed to unlike post", 500)
+			return
+		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 
-	_, err = db.Exec("UPDATE posts SET likes = likes + 1 WHERE id = ?", postID)
+	// Insert a new like
+	_, err = db.Exec("INSERT INTO likes (user_id, post_id) VALUES (?, ?)", userID, postID)
 	if err != nil {
 		http.Error(w, "Failed to like post", 500)
 		return
