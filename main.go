@@ -224,8 +224,3 @@ func replyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//get username handler
-//func getUsername(r *http.Request) string {
-//    // session lookup logic
-//    return ""
-//}
