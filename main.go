@@ -135,6 +135,26 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	postID, err = result.LastInsertId()
+	iff err != nil {
+		http.Error(w, "Failed to retrieve postID", 500)
+		return
+	}
+
+	tagList := r.FormValue(tags)
+	for _, tag := range strings.Split(tagList, ",") {
+		var tagID int
+		err = db.QueryRow("SELECT id FROM tags WHERE name = ?", tag).Scan(&tagID)
+		if err != nil {
+			result, err := db.Exec("INSERT INTO tags (name) VALUES (?)", tag)
+			if err != nil {
+				http.Error(w, "Failed to insert tag", 500)
+				return
+			}
+			tagID64, _ := result.LastInsertId()
+			tagID = int(tagID64)
+		}
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
