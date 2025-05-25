@@ -155,7 +155,23 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 			tagID = int(tagID64)
 		}
 
+		_, err = db.Exec("INSERT INTO post_tags (post_id, tag_id) VALUES (?, ?)", postID, tagID)
+		if err != nil {
+			http.Error(w, "Failed to associate tag with post", 500)
+			return
+		}
+
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+
+	// Helper function for getting comma-separated tags
+	func parseTags(tags string) []string {
+		if tags == "" {
+			return nil
+		}
+		return strings.Split(tags, ",")
+	}
+	return
 }
 
 // "[...] [time] ago" system
