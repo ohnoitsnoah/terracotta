@@ -25,7 +25,7 @@
         <div class="post-header">{{.Username}}</div>
         <div class="post-content">{{.Content}}</div>
         <div class="post-meta">
-            Posted at {{.CreatedAt}} — Likes: {{.Likes}}
+            Posted at {{.CreatedAt}} — Likes: {{.Likes}} - Tags: {{range .Tags}}
         </div>
     </div>
     <form action="/like" method="POST" style="display: inline;">
@@ -39,6 +39,7 @@
         <h2>New Post</h2>
 	<label for="content">Content</label>
         <textarea name="content" id="content" placeholder="What's on your mind?" rows="4" required></textarea>
+	<input type="text" name="tags" placeholder="Tags (comma-separated)">
         <button type="submit">Post</button>
     </form>
 </body>

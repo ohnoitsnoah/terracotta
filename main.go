@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -99,13 +100,37 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Scan(&post.ID, &post.Content, &post.Username, &post.Likes, &post.CreatedAt); err != nil {
         log.Println("Scan error:", err)
         continue
-    }
-    posts = append(posts, post)
+	}
+
+		//Fetch tags for the post
+		tagRows, err := db.Query(`
+		SELECT tags.name
+		FROM post_tags
+		INNER JOIN tags ON post_tags.tag_id = tags.id
+		WHERE post_tags.post_id = ?`, post.ID)
+		if err != nil {
+			log.Println("Error fetching tags:", err)
+			continue
+		}
+
+		var tags []string
+		for tagRows.Next() {
+			var tag string
+			if err := tagRows.Scan(&tag); err != nil {
+				log.Println("Error scanning tag:", err)
+				continue
+			}
+			tags = append(tags, tag)
+		}
+		tagRows.Close()
+
+		post.Content += " [" + strings.Join(tags, ", ") + "]" // Append tags to content
+		posts = append(posts, post)
 }
 
 	data := PageData{
-    Username: getUsername(r), // reads from cookie
-    Posts:    posts,          // your slice of Post structs
+            Username: getUsername(r), // reads from cookie
+            Posts:    posts,          // your slice of Post structs
 }
 templates.ExecuteTemplate(w, "index.html", data)
 }
@@ -129,14 +154,14 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := db.Exec("INSERT INTO posts (username, content) VALUES (?, ?)", username, content)
+	result, err := db.Exec("INSERT INTO posts (username, content) VALUES (?, ?)", username, content)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
 	postID, err = result.LastInsertId()
-	iff err != nil {
+	if err != nil {
 		http.Error(w, "Failed to retrieve postID", 500)
 		return
 	}
@@ -153,8 +178,12 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			tagID64, _ := result.LastInsertId()
 			tagID = int(tagID64)
+		} else if err != nil && err != sql.ErrNoRows {
+			http.Error(w, "Failed to query tag", 500)
+			return
 		}
 
+		// Associate the tag with the post
 		_, err = db.Exec("INSERT INTO post_tags (post_id, tag_id) VALUES (?, ?)", postID, tagID)
 		if err != nil {
 			http.Error(w, "Failed to associate tag with post", 500)
@@ -163,6 +192,7 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
+}
 
 	// Helper function for getting comma-separated tags
 	func parseTags(tags string) []string {
@@ -171,8 +201,7 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return strings.Split(tags, ",")
 	}
-	return
-}
+
 
 // "[...] [time] ago" system
 func timeAgo(t time.Time) string {
