@@ -25,7 +25,10 @@
         <div class="post-header">{{.Username}}</div>
         <div class="post-content">{{.Content}}</div>
         <div class="post-meta">
-            Posted at {{.CreatedAt}} — Likes: {{.Likes}} - Tags: {{range .Tags}}
+            Posted at {{.CreatedAt}} — Likes: {{.Likes}}
+	    {{if .Tags}}
+            - Tags: {{range .Tags}}<span class="tag">#{{.}}</span> {{end}}
+            {{end}}
         </div>
     </div>
     <form action="/like" method="POST" style="display: inline;">

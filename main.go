@@ -18,6 +18,7 @@ type Post struct {
 	Username  string
 	Likes     int
 	CreatedAt string
+	Tags      []string
 }
 
 type PageData struct {
@@ -27,7 +28,6 @@ type PageData struct {
 
 var db *sql.DB
 var templates = template.Must(template.ParseGlob("templates/*.html"))
-//var tmpl = template.Must(template.ParseFiles("templates/*.html"))
 
 func main() {
 	var err error
@@ -37,6 +37,7 @@ func main() {
 	}
 	defer db.Close()
 
+	// Create posts table
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS posts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,18 +46,74 @@ func main() {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	// Create users table (needed for likes)
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create likes table
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS likes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL,
 			post_id INTEGER NOT NULL,
 			FOREIGN KEY (user_id) REFERENCES users(id),
-			FOREIGN KEY (post_id) REFERENCES posts(id)
+			FOREIGN KEY (post_id) REFERENCES posts(id),
 			UNIQUE (user_id, post_id)
 		);
-`)
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	// Create tags table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS tags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL
+		);
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create post_tags junction table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS post_tags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			post_id INTEGER NOT NULL,
+			tag_id INTEGER NOT NULL,
+			FOREIGN KEY (post_id) REFERENCES posts(id),
+			FOREIGN KEY (tag_id) REFERENCES tags(id),
+			UNIQUE (post_id, tag_id)
+		);
+	`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create replies table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS replies (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			post_id INTEGER NOT NULL,
+			username TEXT NOT NULL,
+			content TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (post_id) REFERENCES posts(id)
+		);
+	`)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -77,16 +134,16 @@ func main() {
 //index handler
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
-	SELECT
-	posts.id,
-	posts.content,
-	posts.username,
-	COUNT(likes.id) AS likes,
-	posts.created_at
-	FROM posts
-	LEFT JOIN likes ON posts.id = likes.post_id
-	GROUP BY posts.id
-	ORDER BY posts.created_at DESC
+		SELECT
+			posts.id,
+			posts.content,
+			posts.username,
+			COUNT(likes.id) AS likes,
+			posts.created_at
+		FROM posts
+		LEFT JOIN likes ON posts.id = likes.post_id
+		GROUP BY posts.id
+		ORDER BY posts.created_at DESC
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -96,18 +153,18 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 
 	var posts []Post
 	for rows.Next() {
-	var post Post
-	if err := rows.Scan(&post.ID, &post.Content, &post.Username, &post.Likes, &post.CreatedAt); err != nil {
-        log.Println("Scan error:", err)
-        continue
-	}
+		var post Post
+		if err := rows.Scan(&post.ID, &post.Content, &post.Username, &post.Likes, &post.CreatedAt); err != nil {
+			log.Println("Scan error:", err)
+			continue
+		}
 
-		//Fetch tags for the post
+		// Fetch tags for the post
 		tagRows, err := db.Query(`
-		SELECT tags.name
-		FROM post_tags
-		INNER JOIN tags ON post_tags.tag_id = tags.id
-		WHERE post_tags.post_id = ?`, post.ID)
+			SELECT tags.name
+			FROM post_tags
+			INNER JOIN tags ON post_tags.tag_id = tags.id
+			WHERE post_tags.post_id = ?`, post.ID)
 		if err != nil {
 			log.Println("Error fetching tags:", err)
 			continue
@@ -124,18 +181,18 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		tagRows.Close()
 
-		post.Content += " [" + strings.Join(tags, ", ") + "]" // Append tags to content
+		post.Tags = tags // Store tags in the struct instead of appending to content
 		posts = append(posts, post)
-}
+	}
 
 	data := PageData{
-            Username: getUsername(r), // reads from cookie
-            Posts:    posts,          // your slice of Post structs
-}
-templates.ExecuteTemplate(w, "index.html", data)
+		Username: getUsername(r),
+		Posts:    posts,
+	}
+	templates.ExecuteTemplate(w, "index.html", data)
 }
 
-//Post Handler
+//post Handler
 func postHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -147,61 +204,78 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
+	
 	content := r.FormValue("content")
-
-	if username == "" || content == "" {
-		http.Error(w, "Missing fields", 400)
+	if content == "" {
+		http.Error(w, "Missing content", 400)
 		return
 	}
 
+	// Insert the post
 	result, err := db.Exec("INSERT INTO posts (username, content) VALUES (?, ?)", username, content)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 
-	postID, err = result.LastInsertId()
+	postID, err := result.LastInsertId()
 	if err != nil {
 		http.Error(w, "Failed to retrieve postID", 500)
 		return
 	}
 
-	tagList := r.FormValue(tags)
-	for _, tag := range strings.Split(tagList, ",") {
-		var tagID int
-		err = db.QueryRow("SELECT id FROM tags WHERE name = ?", tag).Scan(&tagID)
-		if err != nil {
-			result, err := db.Exec("INSERT INTO tags (name) VALUES (?)", tag)
-			if err != nil {
-				http.Error(w, "Failed to insert tag", 500)
-				return
+	// Handle tags
+	tagList := r.FormValue("tags")
+	if tagList != "" {
+		tags := parseTags(tagList)
+		for _, tagName := range tags {
+			tagName = strings.TrimSpace(tagName)
+			if tagName == "" {
+				continue
 			}
-			tagID64, _ := result.LastInsertId()
-			tagID = int(tagID64)
-		} else if err != nil && err != sql.ErrNoRows {
-			http.Error(w, "Failed to query tag", 500)
-			return
-		}
 
-		// Associate the tag with the post
-		_, err = db.Exec("INSERT INTO post_tags (post_id, tag_id) VALUES (?, ?)", postID, tagID)
-		if err != nil {
-			http.Error(w, "Failed to associate tag with post", 500)
-			return
+			var tagID int
+			// Try to find existing tag
+			err = db.QueryRow("SELECT id FROM tags WHERE name = ?", tagName).Scan(&tagID)
+			if err == sql.ErrNoRows {
+				// Tag doesn't exist, create it
+				result, err := db.Exec("INSERT INTO tags (name) VALUES (?)", tagName)
+				if err != nil {
+					log.Printf("Failed to insert tag '%s': %v", tagName, err)
+					continue
+				}
+				tagID64, _ := result.LastInsertId()
+				tagID = int(tagID64)
+			} else if err != nil {
+				log.Printf("Failed to query tag '%s': %v", tagName, err)
+				continue
+			}
+
+			// Associate the tag with the post
+			_, err = db.Exec("INSERT INTO post_tags (post_id, tag_id) VALUES (?, ?)", postID, tagID)
+			if err != nil {
+				log.Printf("Failed to associate tag '%s' with post: %v", tagName, err)
+			}
 		}
+	}
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-	}
 }
 
-	// Helper function for getting comma-separated tags
-	func parseTags(tags string) []string {
-		if tags == "" {
-			return nil
-		}
-		return strings.Split(tags, ",")
+//tags helper func
+func parseTags(tags string) []string {
+	if tags == "" {
+		return nil
 	}
-
+	var result []string
+	for _, tag := range strings.Split(tags, ",") {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
 
 // "[...] [time] ago" system
 func timeAgo(t time.Time) string {
@@ -218,7 +292,7 @@ func timeAgo(t time.Time) string {
 	}
 }
 
-//Like handler
+//like handler
 func likePostHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -248,19 +322,21 @@ func likePostHandler(w http.ResponseWriter, r *http.Request) {
 	var exists int
 	err = db.QueryRow("SELECT 1 FROM likes WHERE user_id = ? AND post_id = ?", userID, postID).Scan(&exists)
 	if err == nil {
+		// Unlike the post
 		_, err = db.Exec("DELETE FROM likes WHERE user_id = ? AND post_id = ?", userID, postID)
 		if err != nil {
 			http.Error(w, "Failed to unlike post", 500)
 			return
 		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	// Insert a new like
-	_, err = db.Exec("INSERT INTO likes (user_id, post_id) VALUES (?, ?)", userID, postID)
-	if err != nil {
-		http.Error(w, "Failed to like post", 500)
+	} else if err == sql.ErrNoRows {
+		// Like the post
+		_, err = db.Exec("INSERT INTO likes (user_id, post_id) VALUES (?, ?)", userID, postID)
+		if err != nil {
+			http.Error(w, "Failed to like post", 500)
+			return
+		}
+	} else {
+		http.Error(w, "Database error", 500)
 		return
 	}
 
@@ -269,23 +345,31 @@ func likePostHandler(w http.ResponseWriter, r *http.Request) {
 
 //reply handler
 func replyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		r.ParseForm()
-		db, _ := sql.Open("sqlite3", "./posts.db")
-
-		postID := r.FormValue("post_id")
-		username := r.FormValue("username")
-		content := r.FormValue("content")
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
-
-		_, err := db.Exec("INSERT INTO replies (post_id, username, content, created_at) VALUES (?, ?, ?, ?)",
-			postID, username, content, timestamp)
-
-		if err != nil {
-			http.Error(w, "Failed to save reply", 500)
-			return
-		}
+	if r.Method != "POST" {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
 	}
-}
 
+	username := getUsername(r)
+	if username == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	postID := r.FormValue("post_id")
+	content := r.FormValue("content")
+
+	if postID == "" || content == "" {
+		http.Error(w, "Missing required fields", 400)
+		return
+	}
+
+	_, err := db.Exec("INSERT INTO replies (post_id, username, content) VALUES (?, ?, ?)",
+		postID, username, content)
+	if err != nil {
+		http.Error(w, "Failed to save reply", 500)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
