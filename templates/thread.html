@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>thread</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+     .main-post {
+         border: 2px solid #ddd;
+         padding: 15px;
+         margin: 20px 0;
+         border-radius: 8px;
+         background-color: #f9f9f9;
+     }
+     
+     .reply-form {
+         margin: 20px 0;
+         padding: 15px;
+         border: 1px solid #ddd;
+         border-radius: 8px;
+         background-color: #f5f5f5;
+     }
+     
+     .reply-form textarea {
+         width: 100%;
+         padding: 10px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         resize: vertical;
+     }
+     
+     .replies {
+         margin-top: 30px;
+     }
+     
+     .reply {
+         border-left: 3px solid #007bff;
+         padding: 10px 15px;
+         margin: 10px 0;
+         background-color: #f8f9fa;
+     }
+     
+     .reply-header {
+         font-weight: bold;
+         color: #007bff;
+     }
+     
+     .reply-content {
+         margin: 8px 0;
+     }
+     
+     .reply-meta {
+         font-size: 0.9em;
+         color: #666;
+     }
+     
+     .thread-navigation {
+         margin: 10px 0;
+     }
+     
+     .thread-navigation a {
+         text-decoration: none;
+         color: #007bff;
+     }
+     
+     .no-replies {
+         color: #666;
+         font-style: italic;
+     }
+     
+     .tag {
+         background-color: #e3f2fd;
+         color: #1976d2;
+         padding: 2px 6px;
+         border-radius: 12px;
+         font-size: 0.8em;
+         margin-right: 4px;
+     }
+    </style>
+</head>
+<body>
+    <h1><a href="/" style="text-decoration: none; color: inherit;">terracotta</a></h1>
+
+    <div>
+        {{if .Username}}
+            Logged in as {{.Username}} |
+            <a href="/logout">logout</a>
+        {{else}}
+            <a href="/login">login</a> | <a href="/register">register</a>
+        {{end}}
+    </div>
+    <hr>
+    
+    <div class="thread-navigation">
+        <a href="/">← Back to Timeline</a>
+    </div>
+
+    <!-- main post -->
+    <div class="main-post">
+        <div class="post-header">{{.Post.Username}}</div>
+        <div class="post-content">{{.Post.Content}}</div>
+        <div class="post-meta">
+            Posted at {{.Post.CreatedAt}} — 
+            <span class="likes">{{.Post.Likes}} likes</span> — 
+            <span class="replies">{{.Post.ReplyCount}} replies</span>
+            {{if .Post.Tags}}
+                — Tags: {{range .Post.Tags}}<span class="tag">#{{.}}</span> {{end}}
+            {{end}}
+        </div>
+        <div class="post-actions">
+            <form action="/like" method="POST" style="display: inline;">
+                <input type="hidden" name="post_id" value="{{.Post.ID}}">
+                <input type="hidden" name="redirect" value="/thread?id={{.Post.ID}}">
+                <button type="submit">❤️ Like</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- reply form to reply lol -->
+    {{if .Username}}
+    <div class="reply-form">
+        <h3>Reply to @{{.Post.Username}}</h3>
+        <form action="/post" method="POST">
+            <input type="hidden" name="parent_id" value="{{.Post.ID}}">
+            <textarea name="content" placeholder="Reply to @{{.Post.Username}}..." rows="3" required>@{{.Post.Username}} </textarea>
+            <button type="submit">Reply</button>
+        </form>
+    </div>
+    {{end}}
+
+    <!-- replies -->
+    <div class="replies">
+        <h3>Replies ({{.Post.ReplyCount}})</h3>
+        {{range .Post.Replies}}
+        <div class="reply">
+            <div class="reply-header">{{.Username}}</div>
+            <div class="reply-content">{{.Content}}</div>
+            <div class="reply-meta">
+                Posted at {{.CreatedAt}} — {{.Likes}} likes
+            </div>
+            <div class="reply-actions">
+                <form action="/like" method="POST" style="display: inline;">
+                    <input type="hidden" name="post_id" value="{{.ID}}">
+                    <input type="hidden" name="redirect" value="/thread?id={{$.Post.ID}}">
+                    <button type="submit">❤️ Like</button>
+                </form>
+            </div>
+        </div>
+        {{else}}
+        <p class="no-replies">No replies yet. Be the first to reply!</p>
+        {{end}}
+    </div>
+</body>
+</html>

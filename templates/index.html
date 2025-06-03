@@ -23,27 +23,37 @@
     {{range .Posts}}
     <div class="post">
         <div class="post-header">{{.Username}}</div>
-        <div class="post-content">{{.Content}}</div>
+        <div class="post-content">
+            <a href="/thread?id={{.ID}}" style="text-decoration: none; color: inherit;">
+                {{.Content}}
+            </a>
+        </div>
         <div class="post-meta">
-            Posted at {{.CreatedAt}} — Likes: {{.Likes}}
-	    {{if .Tags}}
-            - Tags: {{range .Tags}}<span class="tag">#{{.}}</span> {{end}}
+            Posted at {{.CreatedAt}} — 
+            <span class="likes">{{.Likes}} likes</span> — 
+            <span class="replies">{{.ReplyCount}} replies</span>
+            {{if .Tags}}
+                — Tags: {{range .Tags}}<span class="tag">#{{.}}</span> {{end}}
             {{end}}
         </div>
+        <div class="post-actions">
+            <form action="/like" method="POST" style="display: inline;">
+                <input type="hidden" name="post_id" value="{{.ID}}">
+                <button type="submit">❤️ Like</button>
+            </form>
+            <a href="/thread?id={{.ID}}" class="reply-link">💬 Reply</a>
+        </div>
     </div>
-    <form action="/like" method="POST" style="display: inline;">
-    <input type="hidden" name="post_id" value="{{.ID}}">
-    <button type="submit">❤️ Like</button>
-    </form>
-    <span>{{.Likes}} likes</span>
     {{end}}
 
+    {{if .Username}}
     <form action="/post" method="POST">
         <h2>New Post</h2>
-	<label for="content">Content</label>
+        <label for="content">Content</label>
         <textarea name="content" id="content" placeholder="What's on your mind?" rows="4" required></textarea>
-	<input type="text" name="tags" placeholder="Tags (comma-separated)">
+        <input type="text" name="tags" placeholder="Tags (comma-separated)">
         <button type="submit">Post</button>
     </form>
+    {{end}}
 </body>
 </html>
