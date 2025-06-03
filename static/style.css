@@ -75,3 +75,12 @@ button {
 button:hover {
     background-color: #005fa3;
 }
+
+.tag {
+    background-color: #e3f2fd;
+    color: #1976d2;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    margin-right: 4px;
+}
