@@ -2,5 +2,5 @@
 #+author: Noah Ruiz
 
 * TODO Fix date output on posts
-* TODO Make tagging system
-** TODO Replies
+* DONE Make tagging system
+** DONE Replies
