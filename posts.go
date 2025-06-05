@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Post struct {
@@ -18,6 +19,7 @@ type Post struct {
 	Tags       []string
 	ParentID   *int
 	Replies    []Post
+	PostType   string
 }
 
 type PageData struct {
@@ -25,6 +27,19 @@ type PageData struct {
 	Posts    []Post
 	Post     *Post // individual post view
 }
+
+type DayGroup struct {
+	DayNumber int
+	Date      string
+	Posts     []Post
+}
+
+type JournalPageData struct {
+	Username  string
+	DayGroups []DayGroup
+}
+
+const NEIGHBORHOOD_START_DATE = "2025-06-01"
 
 // index handler - timeline
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -351,4 +366,132 @@ func parseTags(tags string) []string {
 		}
 	}
 	return result
+}
+
+// Journal handler
+func journalHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+	SELECT
+	posts.id,
+	posts.content,
+	posts.username,
+	COUNT(DISTINCT likes.id) AS likes,
+	COUNT(DISTINCT replies.id) AS reply_count,
+	posts.created_at
+	FROM posts
+	LEFT JOIN likes ON posts.id = likes.post_id
+	LEFT JOIN posts AS replies ON posts.id = replies.parent_id
+	WHERE posts.parent_id IS NULL
+	GROUP BY posts.id
+	ORDER BY posts.created_at DESC
+	`)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+
+	var posts []Post
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(
+			&post.ID, &post.Content, &post.Username,
+			&post.Likes, &post.ReplyCount, &post.CreatedAt); err != nil {
+			log.Println("Scan error:", err)
+			continue
+		}
+		post.Tags = getPostTags(post.ID)
+		posts = append(posts, post)
+	}
+
+	// group posts by day
+	dayGroups := groupPostsByDay(posts)
+
+	data := JournalPageData{
+		Username:  getUsername(r),
+		DayGroups: dayGroups,
+	}
+	templates.ExecuteTemplate(w, "journal.html", data)
+}
+
+func groupPostsByDay(posts []Post) []DayGroup {
+	if len(posts) == 0 {
+		return nil
+	}
+
+	dayMap := make(map[int][]Post)
+
+	for _, post := range posts {
+		dayNumber := getDayNumber(post.CreatedAt)
+		if dayNumber > 0 {
+			dayMap[dayNumber] = append(dayMap[dayNumber], post)
+		}
+	}
+
+    var dayGroups []DayGroup
+    for day := 1; day <= getMaxDay(dayMap); day++ {
+	if posts, exists := dayMap[day]; exists {
+		dayGroups = append(dayGroups, DayGroup{
+			DayNumber: day,
+			Date:      formatDayDate(day),
+			Posts:     posts,
+		})
+	}
+}
+
+return dayGroups
+}
+
+func getDayNumber(createdAt string) int {
+	// parse neighborhood start date
+	startDate, err := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	if err != nil {
+		log.Println("Error parsing neighborhood start date: %v", err)
+		return 0
+	}
+
+	// parse post created_at date
+	postDate, err := time.Parse("2006-01-02 15:04:05", createdAt)
+	if err != nil {
+		log.Println("Error parsing post created_at date: %v", err)
+		return 0
+	}
+
+	//calculate difference in days
+	diff := postDate.Sub(startDate)
+	dayNum := int(diff.Hours() / 24) + 1
+
+	return dayNum
+}
+
+func getMaxDay(dayMap map[int][]Post) int {
+	max := 0
+	for day := range dayMap {
+		if day > max {
+			max = day
+		}
+	}
+	return max
+}
+
+func formatDayDate(dayNum int) string {
+	startDate, _ := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	targetDate := startDate.AddDate(0, 0, dayNum-1)
+	return targetDate.Format("January 2, 2006")
+}
+
+// main timeline - exclude journal posts
+func getMainTimelinePosts(db *sql.DB) ([]Post, error) {
+    query := `SELECT id, content, created_at, post_type FROM posts
+              WHERE post_type != 'journal' OR post_type IS NULL
+              ORDER BY created_at DESC`
+    // ...
+}
+
+// journal timeline - only journal posts
+func getJournalPosts(db *sql.DB) ([]Post, error) {
+    query := `SELECT id, content, created_at, post_type FROM posts
+              WHERE post_type = 'journal'
+              ORDER BY created_at DESC`
+    // ...
 }

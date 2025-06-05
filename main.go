@@ -27,6 +27,7 @@ func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/thread", postThreadHandler)
 	http.HandleFunc("/post", postHandler)
+	http.HandleFunc("/journal", journalHandler)
 	http.HandleFunc("/like", likePostHandler)
 	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/login", loginHandler)
