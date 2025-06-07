@@ -28,6 +28,7 @@ func main() {
 	http.HandleFunc("/thread", postThreadHandler)
 	http.HandleFunc("/post", postHandler)
 	http.HandleFunc("/journal", journalHandler)
+	http.HandleFunc("/journal/post", journalPostHandler)
 	http.HandleFunc("/like", likePostHandler)
 	http.HandleFunc("/register", registerHandler)
 	http.HandleFunc("/login", loginHandler)
@@ -64,6 +65,13 @@ func initDatabase() {
 	`)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Add post_type column if it doesn't exist (ignore error if it already exists)
+	_, err = db.Exec(`ALTER TABLE posts ADD COLUMN post_type TEXT DEFAULT 'regular'`)
+	if err != nil {
+		// Log the error but don't fail - column might already exist
+		log.Println("Note: post_type column might already exist:", err)
 	}
 
 	//create likes table

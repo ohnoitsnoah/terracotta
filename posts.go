@@ -41,7 +41,7 @@ type JournalPageData struct {
 
 const NEIGHBORHOOD_START_DATE = "2025-06-01"
 
-// index handler - timeline
+// index handler - timeline (exclude journal posts)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT
@@ -55,6 +55,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN likes ON posts.id = likes.post_id
 		LEFT JOIN posts AS replies ON posts.id = replies.parent_id
 		WHERE posts.parent_id IS NULL
+		  AND (posts.post_type IS NULL OR posts.post_type != 'journal')
 		GROUP BY posts.id
 		ORDER BY posts.created_at DESC
 	`)
@@ -156,6 +157,12 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+        // JOURNAL: determine post type
+	postType := r.FormValue("post_type")
+	if postType == "" {
+		postType = "regular" //default
+	}
+	
 	// check if this is a reply
 	var parentID *int
 	if parentIDStr := r.FormValue("parent_id"); parentIDStr != "" {
@@ -164,13 +171,13 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// insert the post
+	// insert the post (now w/ post_type)
 	var result sql.Result
 	var err error
 	if parentID != nil {
-		result, err = db.Exec("INSERT INTO posts (username, content, parent_id) VALUES (?, ?, ?)", username, content, *parentID)
+		result, err = db.Exec("INSERT INTO posts (username, content, parent_id, post_type) VALUES (?, ?, ?, ?)", username, content, *parentID, postType)
 	} else {
-		result, err = db.Exec("INSERT INTO posts (username, content) VALUES (?, ?)", username, content)
+		result, err = db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, ?)", username, content, postType)
 	}
 
 	if err != nil {
@@ -192,12 +199,15 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// redirect
+	// redirect (based on post type)
 	if parentID != nil {
-		// If it's a reply, redirect back to the thread
+		// reply -> thread
 		http.Redirect(w, r, "/thread?id="+strconv.Itoa(*parentID), http.StatusSeeOther)
+	} else if postType == "journal" {
+		// journal -> journal
+		http.Redirect(w, r, "/journal", http.StatusSeeOther)
 	} else {
-		// If it's a main post, redirect to home
+		// regular -> home
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
@@ -382,6 +392,7 @@ func journalHandler(w http.ResponseWriter, r *http.Request) {
 	LEFT JOIN likes ON posts.id = likes.post_id
 	LEFT JOIN posts AS replies ON posts.id = replies.parent_id
 	WHERE posts.parent_id IS NULL
+        AND posts.post_type = 'journal'
 	GROUP BY posts.id
 	ORDER BY posts.created_at DESC
 	`)
@@ -414,6 +425,48 @@ func journalHandler(w http.ResponseWriter, r *http.Request) {
 	templates.ExecuteTemplate(w, "journal.html", data)
 }
 
+// journal post handler
+func journalPostHandler(w http.ResponseWriter, r *http.Request) {
+        if r.Method != "POST" {
+		http.Redirect(w, r, "/journal", http.StatusSeeOther)
+		return
+	}
+
+	username := getUsername(r)
+	if username == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	content := r.FormValue("content")
+	if content == "" {
+		http.Error(w, "Missing content", 400)
+		return
+	}
+
+	// Insert journal post
+	result, err := db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, 'journal')", username, content)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	postID, err := result.LastInsertId()
+	if err != nil {
+		http.Error(w, "Failed to retrieve postID", 500)
+		return
+	}
+
+	//Handler for journal post tags
+	tagList := r.FormValue("tags")
+	if tagList != "" {
+		insertPostTags(int(postID), tagList)
+	}
+
+
+	http.Redirect(w, r, "/journal", http.StatusSeeOther)
+}
+	
 func groupPostsByDay(posts []Post) []DayGroup {
 	if len(posts) == 0 {
 		return nil
@@ -481,17 +534,17 @@ func formatDayDate(dayNum int) string {
 }
 
 // main timeline - exclude journal posts
-func getMainTimelinePosts(db *sql.DB) ([]Post, error) {
-    query := `SELECT id, content, created_at, post_type FROM posts
-              WHERE post_type != 'journal' OR post_type IS NULL
-              ORDER BY created_at DESC`
+//func getMainTimelinePosts(db *sql.DB) ([]Post, error) {
+//    query := `SELECT id, content, created_at, post_type FROM posts
+//              WHERE post_type != 'journal' OR post_type IS NULL
+//              ORDER BY created_at DESC`
     // ...
-}
+//}
 
 // journal timeline - only journal posts
-func getJournalPosts(db *sql.DB) ([]Post, error) {
-    query := `SELECT id, content, created_at, post_type FROM posts
-              WHERE post_type = 'journal'
-              ORDER BY created_at DESC`
-    // ...
-}
+//func getJournalPosts(db *sql.DB) ([]Post, error) {
+//    query := `SELECT id, content, created_at, post_type FROM posts
+//              WHERE post_type = 'journal'
+//              ORDER BY created_at DESC`
+//    // ...
+//}
