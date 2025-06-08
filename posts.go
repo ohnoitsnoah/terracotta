@@ -379,22 +379,23 @@ func parseTags(tags string) []string {
 }
 
 // Journal handler
+// Fixed journalHandler with complete data and proper day grouping
 func journalHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
-	SELECT
-	posts.id,
-	posts.content,
-	posts.username,
-	COUNT(DISTINCT likes.id) AS likes,
-	COUNT(DISTINCT replies.id) AS reply_count,
-	posts.created_at
-	FROM posts
-	LEFT JOIN likes ON posts.id = likes.post_id
-	LEFT JOIN posts AS replies ON posts.id = replies.parent_id
-	WHERE posts.parent_id IS NULL
-        AND posts.post_type = 'journal'
-	GROUP BY posts.id
-	ORDER BY posts.created_at DESC
+		SELECT
+			posts.id,
+			posts.content,
+			posts.username,
+			COUNT(DISTINCT likes.id) AS likes,
+			COUNT(DISTINCT replies.id) AS reply_count,
+			posts.created_at
+		FROM posts
+		LEFT JOIN likes ON posts.id = likes.post_id
+		LEFT JOIN posts AS replies ON posts.id = replies.parent_id
+		WHERE posts.parent_id IS NULL
+		  AND posts.post_type = 'journal'
+		GROUP BY posts.id
+		ORDER BY posts.created_at DESC
 	`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -415,14 +416,85 @@ func journalHandler(w http.ResponseWriter, r *http.Request) {
 		posts = append(posts, post)
 	}
 
-	// group posts by day
-	dayGroups := groupPostsByDay(posts)
+	// Fixed: group posts by day with proper error handling
+	dayGroups := groupPostsByDayFixed(posts)
 
 	data := JournalPageData{
 		Username:  getUsername(r),
 		DayGroups: dayGroups,
 	}
 	templates.ExecuteTemplate(w, "journal.html", data)
+}
+
+// Fixed version of groupPostsByDay function
+func groupPostsByDayFixed(posts []Post) []DayGroup {
+	if len(posts) == 0 {
+		return nil
+	}
+
+	dayMap := make(map[int][]Post)
+
+	for _, post := range posts {
+		dayNumber := getDayNumberFixed(post.CreatedAt)
+		log.Printf("DEBUG: Post ID %d, Created: %s, Day: %d", post.ID, post.CreatedAt, dayNumber)
+		if dayNumber > 0 {
+			dayMap[dayNumber] = append(dayMap[dayNumber], post)
+		}
+	}
+
+	// Create day groups in descending order (newest first)
+	var dayGroups []DayGroup
+	maxDay := getMaxDay(dayMap)
+	for day := maxDay; day >= 1; day-- {
+		if posts, exists := dayMap[day]; exists {
+			dayGroups = append(dayGroups, DayGroup{
+				DayNumber: day,
+				Date:      formatDayDate(day),
+				Posts:     posts,
+			})
+		}
+	}
+
+	return dayGroups
+}
+
+// Fixed getDayNumber function with better error handling
+func getDayNumberFixed(createdAt string) int {
+	// Parse neighborhood start date
+	startDate, err := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	if err != nil {
+		log.Printf("Error parsing neighborhood start date: %v", err)
+		return 0
+	}
+
+	// Try multiple date formats for parsing
+	var postDate time.Time
+	
+	// Try SQLite default format first
+	postDate, err = time.Parse("2006-01-02 15:04:05", createdAt)
+	if err != nil {
+		// Try RFC3339 format
+		postDate, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			// Try just the date part
+			postDate, err = time.Parse("2006-01-02", createdAt[:10])
+			if err != nil {
+				log.Printf("Error parsing post created_at date '%s': %v", createdAt, err)
+				return 0
+			}
+		}
+	}
+
+	// Calculate difference in days
+	diff := postDate.Sub(startDate)
+	dayNum := int(diff.Hours()/24) + 1
+
+	// Ensure day number is positive
+	if dayNum < 1 {
+		dayNum = 1
+	}
+
+	return dayNum
 }
 
 // journal post handler
