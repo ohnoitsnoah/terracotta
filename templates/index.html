@@ -4,11 +4,20 @@
     <meta charset="UTF-8">
     <title>terracotta microblog</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+     .active {
+         font-weight: 600;
+         color: #667eea;
+     }
+    </style>
 </head>
 <body>
     <h1>terracotta</h1>
 
     <div>
+	<a href="/" class="active">timeline</a>
+        <a href="/journal">journal</a>
+	<br>
         {{if .Username}}
             Logged in as {{.Username}} |
             <a href="/logout">logout</a>

@@ -72,10 +72,19 @@
             color: #64748b;
         }
         
+        .post-content {
+            cursor: pointer;
+            margin-bottom: 1rem;
+        }
+        
         .post-content p {
             margin: 0 0 1rem 0;
             line-height: 1.6;
             color: #1e293b;
+        }
+        
+        .post-content:hover {
+            color: #667eea;
         }
         
         .post-tags {
@@ -179,9 +188,11 @@
     <div class="container">
         <header>
             <h1>terracotta</h1>
+	    <h2>neighborhood journal</h2>
             <nav>
                 <a href="/">timeline</a>
                 <a href="/journal" class="active">journal</a>
+		<br>
                 {{if .Username}}
                     <span>Hello, {{.Username}}!</span>
                     <a href="/logout">logout</a>
@@ -199,7 +210,7 @@
                     <textarea name="content" placeholder="What happened today?" required></textarea>
                     <div class="form-actions">
                         <input type="text" name="tags" placeholder="Tags (comma separated)">
-                        <button type="submit">Post</button>
+                        <button type="submit">Add to Journal</button>
                     </div>
                 </form>
             </section>
@@ -222,7 +233,8 @@
                                     <time class="timestamp">{{.CreatedAt}}</time>
                                 </div>
                                 
-                                <div class="post-content">
+                                <!-- Made clickable to view thread -->
+                                <div class="post-content" onclick="window.location.href='/thread?id={{.ID}}'">
                                     <p>{{.Content}}</p>
                                 </div>
                                 
