@@ -4,3 +4,5 @@ posts.db
 *.db
 .\#devlog.md
 \#devlog.md\#
+.posts.go.swp
+test.go

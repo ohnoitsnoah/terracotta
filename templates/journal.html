@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>journal</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .day-section {
+            margin-bottom: 3rem;
+        }
+        
+        .day-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .day-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .day-date {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+        
+        .day-posts {
+            margin-left: 1rem;
+            border-left: 3px solid #e2e8f0;
+            padding-left: 1.5rem;
+        }
+        
+        .post {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .post:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .post-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        
+        .username {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .timestamp {
+            color: #64748b;
+        }
+        
+        .post-content {
+            cursor: pointer;
+            margin-bottom: 1rem;
+        }
+        
+        .post-content p {
+            margin: 0 0 1rem 0;
+            line-height: 1.6;
+            color: #1e293b;
+        }
+        
+        .post-content:hover {
+            color: #667eea;
+        }
+        
+        .post-tags {
+            margin-bottom: 1rem;
+        }
+        
+        .tag {
+            background: #f1f5f9;
+            color: #475569;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            margin-right: 0.5rem;
+        }
+        
+        .post-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .like-form {
+            margin: 0;
+        }
+        
+        .like-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #64748b;
+            font-size: 0.9rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        
+        .like-btn:hover {
+            background: #f1f5f9;
+        }
+        
+        .like-count {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .reply-link {
+            color: #64748b;
+            text-decoration: none;
+            font-size: 0.9rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            transition: background-color 0.2s ease;
+        }
+        
+        .reply-link:hover {
+            background: #f1f5f9;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+        
+        .empty-state h2 {
+            margin-bottom: 0.5rem;
+            color: #1e293b;
+        }
+        
+        nav .active {
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .post-form {
+            margin-bottom: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .day-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .day-posts {
+                margin-left: 0;
+                border-left: none;
+                padding-left: 0;
+            }
+            
+            .post-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>terracotta</h1>
+	    <h2>neighborhood journal</h2>
+            <nav>
+                <a href="/">timeline</a>
+                <a href="/journal" class="active">journal</a>
+		<br>
+                {{if .Username}}
+                    <span>Hello, {{.Username}}!</span>
+                    <a href="/logout">logout</a>
+                {{else}}
+                    <a href="/login">login</a>
+                    <a href="/register">register</a>
+                {{end}}
+            </nav>
+        </header>
+
+        <main>
+            {{if .Username}}
+            <section class="post-form">
+                <form action="/journal/post" method="POST">
+                    <textarea name="content" placeholder="What happened today?" required></textarea>
+                    <div class="form-actions">
+                        <input type="text" name="tags" placeholder="Tags (comma separated)">
+                        <button type="submit">Add to Journal</button>
+                    </div>
+                </form>
+            </section>
+            {{end}}
+
+            <section class="journal-feed">
+                {{if .DayGroups}}
+                    {{range .DayGroups}}
+                    <div class="day-section">
+                        <div class="day-header">
+                            <h2>Day {{.DayNumber}}</h2>
+                            <span class="day-date">{{.Date}}</span>
+                        </div>
+                        
+                        <div class="day-posts">
+                            {{range .Posts}}
+                            <article class="post">
+                                <div class="post-header">
+                                    <span class="username">@{{.Username}}</span>
+                                    <time class="timestamp">{{.CreatedAt}}</time>
+                                </div>
+                                
+                                <!-- Made clickable to view thread -->
+                                <div class="post-content" onclick="window.location.href='/thread?id={{.ID}}'">
+                                    <p>{{.Content}}</p>
+                                </div>
+                                
+                                {{if .Tags}}
+                                <div class="post-tags">
+                                    {{range .Tags}}
+                                        <span class="tag">#{{.}}</span>
+                                    {{end}}
+                                </div>
+                                {{end}}
+                                
+                                <div class="post-actions">
+                                    {{if $.Username}}
+                                    <form action="/like" method="POST" class="like-form">
+                                        <input type="hidden" name="post_id" value="{{.ID}}">
+                                        <input type="hidden" name="redirect" value="/journal">
+                                        <button type="submit" class="like-btn">
+                                            ❤️ {{.Likes}}
+                                        </button>
+                                    </form>
+                                    {{else}}
+                                    <span class="like-count">❤️ {{.Likes}}</span>
+                                    {{end}}
+                                    
+                                    <a href="/thread?id={{.ID}}" class="reply-link">
+                                        💬 {{.ReplyCount}}
+                                    </a>
+                                </div>
+                            </article>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                {{else}}
+                    <div class="empty-state">
+                        <h2>No journal entries yet</h2>
+                        <p>Start sharing your daily updates!</p>
+                    </div>
+                {{end}}
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>

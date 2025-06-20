@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>post editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Helvetica", sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #2563eb;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .editor-form {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        input[type="text"], 
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus, 
+        textarea:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 200px;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        .image-upload {
+            border: 2px dashed #d1d5db;
+            border-radius: 6px;
+            padding: 40px;
+            text-align: center;
+            background: #f9fafb;
+            transition: all 0.2s;
+        }
+
+        .image-upload:hover {
+            border-color: #2563eb;
+            background: #eff6ff;
+        }
+
+        .image-upload input[type="file"] {
+            margin-top: 10px;
+        }
+
+        .image-preview {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .image-preview img {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .image-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .preview-section {
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .preview-content {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #2563eb;
+        }
+
+        .preview-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #111827;
+        }
+
+        .preview-body {
+            line-height: 1.6;
+            color: #374151;
+            white-space: pre-wrap;
+        }
+
+        .preview-image {
+            margin: 15px 0;
+        }
+
+        .file-info {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+            }
+            
+            .editor-form {
+                padding: 20px;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>create new post</h1>
+        </div>
+
+        <form class="editor-form" action="/posts" method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="title">Post Title</label>
+                <input type="text" id="title" name="title" placeholder="Enter your post title..." required>
+            </div>
+
+            <div class="form-group">
+                <label for="content">Post Content</label>
+                <textarea id="content" name="content" placeholder="Write your post content here..." required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="image">Featured Image (optional)</label>
+                <div class="image-upload">
+                    <div>📁 Choose an image file</div>
+                    <input type="file" id="image" name="image" accept="image/*" onchange="previewImage(this)">
+                    <div class="file-info">Supported formats: JPG, PNG, GIF (Max: 5MB)</div>
+                </div>
+                <div id="imagePreview" class="image-preview" style="display: none;">
+                    <img id="previewImg" src="" alt="Image preview">
+                    <div class="image-info" id="imageInfo"></div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn btn-primary">Publish Post</button>
+                <button type="button" class="btn btn-secondary" onclick="showPreview()">Preview</button>
+                <a href="/posts" class="btn btn-secondary">Cancel</a>
+            </div>
+
+            <div id="previewSection" class="preview-section" style="display: none;">
+                <h3>Preview</h3>
+                <div class="preview-content">
+                    <div class="preview-title" id="previewTitle">Your post title will appear here</div>
+                    <div class="preview-image" id="previewImageContainer"></div>
+                    <div class="preview-body" id="previewBody">Your post content will appear here</div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <script>
+     function previewImage(input) {
+         const preview = document.getElementById('imagePreview');
+         const previewImg = document.getElementById('previewImg');
+         const imageInfo = document.getElementById('imageInfo');
+         
+         if (input.files && input.files[0]) {
+             const file = input.files[0];
+             
+             // Check file size (5MB limit)
+             if (file.size > 5 * 1024 * 1024) {
+                 alert('File size must be less than 5MB');
+                 input.value = '';
+                 preview.style.display = 'none';
+                 return;
+             }
+             
+             const reader = new FileReader();
+             reader.onload = function(e) {
+                 previewImg.src = e.target.result;
+                 imageInfo.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                 preview.style.display = 'block';
+             };
+             reader.readAsDataURL(file);
+         } else {
+             preview.style.display = 'none';
+         }
+     }
+     
+     function showPreview() {
+         const title = document.getElementById('title').value;
+         const content = document.getElementById('content').value;
+         const imageInput = document.getElementById('image');
+         
+         const previewSection = document.getElementById('previewSection');
+         const previewTitle = document.getElementById('previewTitle');
+         const previewBody = document.getElementById('previewBody');
+         const previewImageContainer = document.getElementById('previewImageContainer');
+         
+         previewTitle.textContent = title || 'Your post title will appear here';
+         previewBody.textContent = content || 'Your post content will appear here';
+         
+         // Handle image preview
+         if (imageInput.files && imageInput.files[0]) {
+             const reader = new FileReader();
+             reader.onload = function(e) {
+                 previewImageContainer.innerHTML = `<img src="${e.target.result}" alt="Featured image" style="max-width: 100%; border-radius: 6px;">`;
+             };
+             reader.readAsDataURL(imageInput.files[0]);
+         } else {
+             previewImageContainer.innerHTML = '';
+         }
+         
+         previewSection.style.display = 'block';
+         previewSection.scrollIntoView({ behavior: 'smooth' });
+     }
+    </script>
+</body>
+</html>

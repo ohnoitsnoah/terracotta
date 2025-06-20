@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Post struct {
@@ -18,6 +19,7 @@ type Post struct {
 	Tags       []string
 	ParentID   *int
 	Replies    []Post
+	PostType   string
 }
 
 type PageData struct {
@@ -26,7 +28,20 @@ type PageData struct {
 	Post     *Post // individual post view
 }
 
-// index handler - timeline
+type DayGroup struct {
+	DayNumber int
+	Date      string
+	Posts     []Post
+}
+
+type JournalPageData struct {
+	Username  string
+	DayGroups []DayGroup
+}
+
+const NEIGHBORHOOD_START_DATE = "2025-06-01"
+
+// index handler - timeline (exclude journal posts)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT
@@ -40,6 +55,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN likes ON posts.id = likes.post_id
 		LEFT JOIN posts AS replies ON posts.id = replies.parent_id
 		WHERE posts.parent_id IS NULL
+		  AND (posts.post_type IS NULL OR posts.post_type != 'journal')
 		GROUP BY posts.id
 		ORDER BY posts.created_at DESC
 	`)
@@ -141,6 +157,12 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+        // JOURNAL: determine post type
+	postType := r.FormValue("post_type")
+	if postType == "" {
+		postType = "regular" //default
+	}
+	
 	// check if this is a reply
 	var parentID *int
 	if parentIDStr := r.FormValue("parent_id"); parentIDStr != "" {
@@ -149,13 +171,13 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// insert the post
+	// insert the post (now w/ post_type)
 	var result sql.Result
 	var err error
 	if parentID != nil {
-		result, err = db.Exec("INSERT INTO posts (username, content, parent_id) VALUES (?, ?, ?)", username, content, *parentID)
+		result, err = db.Exec("INSERT INTO posts (username, content, parent_id, post_type) VALUES (?, ?, ?, ?)", username, content, *parentID, postType)
 	} else {
-		result, err = db.Exec("INSERT INTO posts (username, content) VALUES (?, ?)", username, content)
+		result, err = db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, ?)", username, content, postType)
 	}
 
 	if err != nil {
@@ -177,12 +199,15 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// redirect
+	// redirect (based on post type)
 	if parentID != nil {
-		// If it's a reply, redirect back to the thread
+		// reply -> thread
 		http.Redirect(w, r, "/thread?id="+strconv.Itoa(*parentID), http.StatusSeeOther)
+	} else if postType == "journal" {
+		// journal -> journal
+		http.Redirect(w, r, "/journal", http.StatusSeeOther)
 	} else {
-		// If it's a main post, redirect to home
+		// regular -> home
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
@@ -351,4 +376,296 @@ func parseTags(tags string) []string {
 		}
 	}
 	return result
+}
+
+// Journal handler
+// Fixed journalHandler with complete data and proper day grouping
+func journalHandler(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT
+			posts.id,
+			posts.content,
+			posts.username,
+			COUNT(DISTINCT likes.id) AS likes,
+			COUNT(DISTINCT replies.id) AS reply_count,
+			posts.created_at
+		FROM posts
+		LEFT JOIN likes ON posts.id = likes.post_id
+		LEFT JOIN posts AS replies ON posts.id = replies.parent_id
+		WHERE posts.parent_id IS NULL
+		  AND posts.post_type = 'journal'
+		GROUP BY posts.id
+		ORDER BY posts.created_at DESC
+	`)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+
+	var posts []Post
+	for rows.Next() {
+		var post Post
+		if err := rows.Scan(
+			&post.ID, &post.Content, &post.Username,
+			&post.Likes, &post.ReplyCount, &post.CreatedAt); err != nil {
+			log.Println("Scan error:", err)
+			continue
+		}
+		post.Tags = getPostTags(post.ID)
+		posts = append(posts, post)
+	}
+
+	// Fixed: group posts by day with proper error handling
+	dayGroups := groupPostsByDayFixed(posts)
+
+	data := JournalPageData{
+		Username:  getUsername(r),
+		DayGroups: dayGroups,
+	}
+	templates.ExecuteTemplate(w, "journal.html", data)
+}
+
+// Fixed version of groupPostsByDay function
+func groupPostsByDayFixed(posts []Post) []DayGroup {
+	if len(posts) == 0 {
+		return nil
+	}
+
+	dayMap := make(map[int][]Post)
+
+	for _, post := range posts {
+		dayNumber := getDayNumberFixed(post.CreatedAt)
+		log.Printf("DEBUG: Post ID %d, Created: %s, Day: %d", post.ID, post.CreatedAt, dayNumber)
+		if dayNumber > 0 {
+			dayMap[dayNumber] = append(dayMap[dayNumber], post)
+		}
+	}
+
+	// Create day groups in descending order (newest first)
+	var dayGroups []DayGroup
+	maxDay := getMaxDay(dayMap)
+	for day := maxDay; day >= 1; day-- {
+		if posts, exists := dayMap[day]; exists {
+			dayGroups = append(dayGroups, DayGroup{
+				DayNumber: day,
+				Date:      formatDayDate(day),
+				Posts:     posts,
+			})
+		}
+	}
+
+	return dayGroups
+}
+
+// Fixed getDayNumber function with better error handling
+func getDayNumberFixed(createdAt string) int {
+	// Parse neighborhood start date
+	startDate, err := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	if err != nil {
+		log.Printf("Error parsing neighborhood start date: %v", err)
+		return 0
+	}
+
+	// Try multiple date formats for parsing
+	var postDate time.Time
+	
+	// Try SQLite default format first
+	postDate, err = time.Parse("2006-01-02 15:04:05", createdAt)
+	if err != nil {
+		// Try RFC3339 format
+		postDate, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			// Try just the date part
+			postDate, err = time.Parse("2006-01-02", createdAt[:10])
+			if err != nil {
+				log.Printf("Error parsing post created_at date '%s': %v", createdAt, err)
+				return 0
+			}
+		}
+	}
+
+	// Calculate difference in days
+	diff := postDate.Sub(startDate)
+	dayNum := int(diff.Hours()/24) + 1
+
+	// Ensure day number is positive
+	if dayNum < 1 {
+		dayNum = 1
+	}
+
+	return dayNum
+}
+
+// journal post handler
+func journalPostHandler(w http.ResponseWriter, r *http.Request) {
+        if r.Method != "POST" {
+		http.Redirect(w, r, "/journal", http.StatusSeeOther)
+		return
+	}
+
+	username := getUsername(r)
+	if username == "" {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	content := r.FormValue("content")
+	if content == "" {
+		http.Error(w, "Missing content", 400)
+		return
+	}
+
+	// Insert journal post
+	result, err := db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, 'journal')", username, content)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	postID, err := result.LastInsertId()
+	if err != nil {
+		http.Error(w, "Failed to retrieve postID", 500)
+		return
+	}
+
+	//Handler for journal post tags
+	tagList := r.FormValue("tags")
+	if tagList != "" {
+		insertPostTags(int(postID), tagList)
+	}
+
+
+	http.Redirect(w, r, "/journal", http.StatusSeeOther)
+}
+	
+func groupPostsByDay(posts []Post) []DayGroup {
+	if len(posts) == 0 {
+		return nil
+	}
+
+	dayMap := make(map[int][]Post)
+
+	for _, post := range posts {
+		dayNumber := getDayNumber(post.CreatedAt)
+		if dayNumber > 0 {
+			dayMap[dayNumber] = append(dayMap[dayNumber], post)
+		}
+	}
+
+    var dayGroups []DayGroup
+    for day := 1; day <= getMaxDay(dayMap); day++ {
+	if posts, exists := dayMap[day]; exists {
+		dayGroups = append(dayGroups, DayGroup{
+			DayNumber: day,
+			Date:      formatDayDate(day),
+			Posts:     posts,
+		})
+	}
+}
+
+return dayGroups
+}
+
+func getDayNumber(createdAt string) int {
+	// parse neighborhood start date
+	startDate, err := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	if err != nil {
+		log.Println("Error parsing neighborhood start date: %v", err)
+		return 0
+	}
+
+	// parse post created_at date
+	postDate, err := time.Parse("2006-01-02 15:04:05", createdAt)
+	if err != nil {
+		log.Println("Error parsing post created_at date: %v", err)
+		return 0
+	}
+
+	//calculate difference in days
+	diff := postDate.Sub(startDate)
+	dayNum := int(diff.Hours() / 24) + 1
+
+	return dayNum
+}
+
+func getMaxDay(dayMap map[int][]Post) int {
+	max := 0
+	for day := range dayMap {
+		if day > max {
+			max = day
+		}
+	}
+	return max
+}
+
+func formatDayDate(dayNum int) string {
+	startDate, _ := time.Parse("2006-01-02", NEIGHBORHOOD_START_DATE)
+	targetDate := startDate.AddDate(0, 0, dayNum-1)
+	return targetDate.Format("January 2, 2006")
+}
+
+// main timeline - exclude journal posts
+//func getMainTimelinePosts(db *sql.DB) ([]Post, error) {
+//    query := `SELECT id, content, created_at, post_type FROM posts
+//              WHERE post_type != 'journal' OR post_type IS NULL
+//              ORDER BY created_at DESC`
+    // ...
+//}
+
+// journal timeline - only journal posts
+//func getJournalPosts(db *sql.DB) ([]Post, error) {
+//    query := `SELECT id, content, created_at, post_type FROM posts
+//              WHERE post_type = 'journal'
+//              ORDER BY created_at DESC`
+//    // ...
+//}
+
+// image handler
+func UploadImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Redirect(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the multipart form (32MB limit)
+	err := r.ParseMultipartForm(32 << 20)
+	if err != nil {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// check file type
+	if !isValidImage(handler.Header.Get("Content-Type")) {
+		http.Error(w, "Invalid file type", http.StatusBadRequest)
+		return
+	}
+
+	// generate a unique filename
+	filename := generateUniqueFilename(handler.Filename)
+
+	// save the file to the server
+	dst, err := os.Create("./uploads/" + filename)
+	if err != nil {
+		http.Error(w, "Cannot create file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		return
+	}
+
+	// return filename for frontend use
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"filename": filename})
 }
