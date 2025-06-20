@@ -620,3 +620,52 @@ func formatDayDate(dayNum int) string {
 //              ORDER BY created_at DESC`
 //    // ...
 //}
+
+// image handler
+func UploadImageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Redirect(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse the multipart form (32MB limit)
+	err := r.ParseMultipartForm(32 << 20)
+	if err != nil {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// check file type
+	if !isValidImage(handler.Header.Get("Content-Type")) {
+		http.Error(w, "Invalid file type", http.StatusBadRequest)
+		return
+	}
+
+	// generate a unique filename
+	filename := generateUniqueFilename(handler.Filename)
+
+	// save the file to the server
+	dst, err := os.Create("./uploads/" + filename)
+	if err != nil {
+		http.Error(w, "Cannot create file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		http.Error(w, "Error saving file", http.StatusInternalServerError)
+		return
+	}
+
+	// return filename for frontend use
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"filename": filename})
+}
