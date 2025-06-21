@@ -1,9 +1,15 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +19,7 @@ type Post struct {
 	ID         int
 	Content    string
 	Username   string
+	ImageURL   string
 	Likes      int
 	ReplyCount int
 	CreatedAt  string
@@ -41,6 +48,25 @@ type JournalPageData struct {
 
 const NEIGHBORHOOD_START_DATE = "2025-06-01"
 
+// Helper functions for image handling
+func isValidImage(contentType string) bool {
+	validTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/jpg":  true,
+		"image/png":  true,
+		"image/gif":  true,
+		"image/webp": true,
+	}
+	return validTypes[contentType]
+}
+
+func generateUniqueFilename(originalFilename string) string {
+	ext := filepath.Ext(originalFilename)
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	return hex.EncodeToString(randBytes) + ext
+}
+
 // index handler - timeline (exclude journal posts)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
@@ -48,6 +74,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 			posts.id,
 			posts.content,
 			posts.username,
+			posts.image_url,
 			COUNT(DISTINCT likes.id) AS likes,
 			COUNT(DISTINCT replies.id) AS reply_count,
 			posts.created_at
@@ -68,7 +95,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	var posts []Post
 	for rows.Next() {
 		var post Post
-		if err := rows.Scan(&post.ID, &post.Content, &post.Username, &post.Likes, &post.ReplyCount, &post.CreatedAt); err != nil {
+		if err := rows.Scan(&post.ID, &post.Content, &post.Username, &post.ImageURL, &post.Likes, &post.ReplyCount, &post.CreatedAt); err != nil {
 			log.Println("Scan error:", err)
 			continue
 		}
@@ -106,6 +133,7 @@ func postThreadHandler(w http.ResponseWriter, r *http.Request) {
 			posts.id,
 			posts.content,
 			posts.username,
+			posts.image_url,
 			COUNT(DISTINCT likes.id) AS likes,
 			COUNT(DISTINCT replies.id) AS reply_count,
 			posts.created_at
@@ -114,7 +142,7 @@ func postThreadHandler(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN posts AS replies ON posts.id = replies.parent_id
 		WHERE posts.id = ?
 		GROUP BY posts.id
-	`, postID).Scan(&post.ID, &post.Content, &post.Username, &post.Likes, &post.ReplyCount, &post.CreatedAt)
+	`, postID).Scan(&post.ID, &post.Content, &post.Username, &post.ImageURL, &post.Likes, &post.ReplyCount, &post.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -157,12 +185,36 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-        // JOURNAL: determine post type
+	// image upload
+	var imageURL string
+	file, handler, fileErr := r.FormFile("image")
+	if fileErr == nil {
+		defer file.Close()
+
+		if isValidImage(handler.Header.Get("Content-Type")) {
+			filename := generateUniqueFilename(handler.Filename)
+
+			// Create uploads directory if it doesn't exist
+			err := os.MkdirAll("./uploads", 0755)
+			if err != nil {
+				log.Printf("Error creating uploads directory: %v", err)
+			} else {
+				dst, err := os.Create("./uploads/" + filename)
+				if err == nil {
+					defer dst.Close()
+					io.Copy(dst, file)
+					imageURL = "/uploads/" + filename // set image URL for post
+				}
+			}
+		}
+	}
+
+	// JOURNAL: determine post type
 	postType := r.FormValue("post_type")
 	if postType == "" {
 		postType = "regular" //default
 	}
-	
+
 	// check if this is a reply
 	var parentID *int
 	if parentIDStr := r.FormValue("parent_id"); parentIDStr != "" {
@@ -171,13 +223,13 @@ func postHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// insert the post (now w/ post_type)
+	// insert the post (now w/ image_url)
 	var result sql.Result
 	var err error
 	if parentID != nil {
-		result, err = db.Exec("INSERT INTO posts (username, content, parent_id, post_type) VALUES (?, ?, ?, ?)", username, content, *parentID, postType)
+		result, err = db.Exec("INSERT INTO posts (username, content, image_url, parent_id, post_type) VALUES (?, ?, ?, ?, ?)", username, content, imageURL, *parentID, postType)
 	} else {
-		result, err = db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, ?)", username, content, postType)
+		result, err = db.Exec("INSERT INTO posts (username, content, image_url, post_type) VALUES (?, ?, ?, ?)", username, content, imageURL, postType)
 	}
 
 	if err != nil {
@@ -300,6 +352,7 @@ func getPostReplies(postID int) []Post {
 			posts.id,
 			posts.content,
 			posts.username,
+			posts.image_url,
 			COUNT(DISTINCT likes.id) AS likes,
 			posts.created_at
 		FROM posts
@@ -317,7 +370,7 @@ func getPostReplies(postID int) []Post {
 	var replies []Post
 	for rows.Next() {
 		var reply Post
-		if err := rows.Scan(&reply.ID, &reply.Content, &reply.Username, &reply.Likes, &reply.CreatedAt); err != nil {
+		if err := rows.Scan(&reply.ID, &reply.Content, &reply.Username, &reply.ImageURL, &reply.Likes, &reply.CreatedAt); err != nil {
 			log.Printf("Error scanning reply: %v", err)
 			continue
 		}
@@ -386,6 +439,7 @@ func journalHandler(w http.ResponseWriter, r *http.Request) {
 			posts.id,
 			posts.content,
 			posts.username,
+			posts.image_url,
 			COUNT(DISTINCT likes.id) AS likes,
 			COUNT(DISTINCT replies.id) AS reply_count,
 			posts.created_at
@@ -407,7 +461,7 @@ func journalHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var post Post
 		if err := rows.Scan(
-			&post.ID, &post.Content, &post.Username,
+			&post.ID, &post.Content, &post.Username, &post.ImageURL,
 			&post.Likes, &post.ReplyCount, &post.CreatedAt); err != nil {
 			log.Println("Scan error:", err)
 			continue
@@ -469,7 +523,7 @@ func getDayNumberFixed(createdAt string) int {
 
 	// Try multiple date formats for parsing
 	var postDate time.Time
-	
+
 	// Try SQLite default format first
 	postDate, err = time.Parse("2006-01-02 15:04:05", createdAt)
 	if err != nil {
@@ -499,7 +553,7 @@ func getDayNumberFixed(createdAt string) int {
 
 // journal post handler
 func journalPostHandler(w http.ResponseWriter, r *http.Request) {
-        if r.Method != "POST" {
+	if r.Method != "POST" {
 		http.Redirect(w, r, "/journal", http.StatusSeeOther)
 		return
 	}
@@ -516,8 +570,32 @@ func journalPostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle image upload for journal posts
+	var imageURL string
+	file, handler, fileErr := r.FormFile("image")
+	if fileErr == nil {
+		defer file.Close()
+
+		if isValidImage(handler.Header.Get("Content-Type")) {
+			filename := generateUniqueFilename(handler.Filename)
+
+			// Create uploads directory if it doesn't exist
+			err := os.MkdirAll("./uploads", 0755)
+			if err != nil {
+				log.Printf("Error creating uploads directory: %v", err)
+			} else {
+				dst, err := os.Create("./uploads/" + filename)
+				if err == nil {
+					defer dst.Close()
+					io.Copy(dst, file)
+					imageURL = "/uploads/" + filename
+				}
+			}
+		}
+	}
+
 	// Insert journal post
-	result, err := db.Exec("INSERT INTO posts (username, content, post_type) VALUES (?, ?, 'journal')", username, content)
+	result, err := db.Exec("INSERT INTO posts (username, content, image_url, post_type) VALUES (?, ?, ?, 'journal')", username, content, imageURL)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -535,10 +613,9 @@ func journalPostHandler(w http.ResponseWriter, r *http.Request) {
 		insertPostTags(int(postID), tagList)
 	}
 
-
 	http.Redirect(w, r, "/journal", http.StatusSeeOther)
 }
-	
+
 func groupPostsByDay(posts []Post) []DayGroup {
 	if len(posts) == 0 {
 		return nil
@@ -553,18 +630,18 @@ func groupPostsByDay(posts []Post) []DayGroup {
 		}
 	}
 
-    var dayGroups []DayGroup
-    for day := 1; day <= getMaxDay(dayMap); day++ {
-	if posts, exists := dayMap[day]; exists {
-		dayGroups = append(dayGroups, DayGroup{
-			DayNumber: day,
-			Date:      formatDayDate(day),
-			Posts:     posts,
-		})
+	var dayGroups []DayGroup
+	for day := 1; day <= getMaxDay(dayMap); day++ {
+		if posts, exists := dayMap[day]; exists {
+			dayGroups = append(dayGroups, DayGroup{
+				DayNumber: day,
+				Date:      formatDayDate(day),
+				Posts:     posts,
+			})
+		}
 	}
-}
 
-return dayGroups
+	return dayGroups
 }
 
 func getDayNumber(createdAt string) int {
@@ -605,26 +682,10 @@ func formatDayDate(dayNum int) string {
 	return targetDate.Format("January 2, 2006")
 }
 
-// main timeline - exclude journal posts
-//func getMainTimelinePosts(db *sql.DB) ([]Post, error) {
-//    query := `SELECT id, content, created_at, post_type FROM posts
-//              WHERE post_type != 'journal' OR post_type IS NULL
-//              ORDER BY created_at DESC`
-    // ...
-//}
-
-// journal timeline - only journal posts
-//func getJournalPosts(db *sql.DB) ([]Post, error) {
-//    query := `SELECT id, content, created_at, post_type FROM posts
-//              WHERE post_type = 'journal'
-//              ORDER BY created_at DESC`
-//    // ...
-//}
-
-// image handler
+// image handler - you can remove this if you don't need a separate endpoint
 func UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		http.Redirect(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -650,6 +711,13 @@ func UploadImageHandler(w http.ResponseWriter, r *http.Request) {
 
 	// generate a unique filename
 	filename := generateUniqueFilename(handler.Filename)
+
+	// Create uploads directory if it doesn't exist
+	err = os.MkdirAll("./uploads", 0755)
+	if err != nil {
+		http.Error(w, "Cannot create uploads directory", http.StatusInternalServerError)
+		return
+	}
 
 	// save the file to the server
 	dst, err := os.Create("./uploads/" + filename)
