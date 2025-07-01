@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-
+	"strings"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -37,6 +37,8 @@ func main() {
 
 	log.Println("Starting server on :8081...")
 	log.Fatal(http.ListenAndServe(":8081", nil))
+
+	migrateDatabase()
 }
 
 func initDatabase() {
@@ -113,5 +115,18 @@ func initDatabase() {
 	`)
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+// this is mostly bc im lazy
+func migrateDatabase(){
+	var count int
+	err := db.QueryRow("PRAGMA table_info(posts)").Scan(&count)
+
+	_, err = db.Exec("ALTER TABLE posts ADD COLUMN image_url TEXT")
+	if err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name: image_url") {
+			log.Printf("Warning: Could not add image_url column: %v", err)
+		}
 	}
 }
